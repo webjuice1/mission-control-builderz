@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { createClientLogger } from '@/lib/client-logger'
 import { AgentAvatar } from '@/components/ui/agent-avatar'
+import { getAgentIdentity, getAgentDisplayName } from '@/lib/agent-identity'
 import {
   OverviewTab,
   SoulTab,
@@ -326,8 +327,8 @@ export function AgentSquadPanelPhase3() {
                   <div className="flex items-center gap-2 min-w-0">
                     <AgentAvatar name={agent.name} size="md" />
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-foreground text-lg truncate">{agent.name}</h3>
-                      <p className="text-muted-foreground text-sm truncate">{agent.role}</p>
+                      <h3 className="font-semibold text-foreground text-lg truncate">{getAgentDisplayName(agent.name)}</h3>
+                      <p className="text-muted-foreground text-sm truncate">{agent.name} · {agent.role}</p>
                     </div>
                   </div>
                   
@@ -608,8 +609,8 @@ function AgentDetailModalPhase3({
         <div className="p-6 border-b border-border">
           <div className="flex justify-between items-start">
             <div>
-              <h3 className="text-xl font-bold text-foreground">{agent.name}</h3>
-              <p className="text-muted-foreground">{agent.role}</p>
+              <h3 className="text-xl font-bold text-foreground">{getAgentDisplayName(agent.name)}</h3>
+              <p className="text-muted-foreground">{agent.name} · {agent.role}</p>
             </div>
             <div className="flex items-center gap-3">
               <div className={`w-4 h-4 rounded-full ${statusColors[agent.status]}`}></div>
@@ -761,7 +762,7 @@ function QuickSpawnModal({
       <div className="bg-card border border-border rounded-lg max-w-md w-full p-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-foreground">
-            Quick Spawn for {agent.name}
+            Quick Spawn for {getAgentDisplayName(agent.name)}
           </h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-2xl transition-smooth">×</button>
         </div>
@@ -787,7 +788,7 @@ function QuickSpawnModal({
               <textarea
                 value={spawnData.task}
                 onChange={(e) => setSpawnData(prev => ({ ...prev, task: e.target.value }))}
-                placeholder={`Delegate a subtask to ${agent.name}...`}
+                placeholder={`Delegate a subtask to ${getAgentIdentity(agent.name).label}...`}
                 className="w-full h-24 px-3 py-2 bg-surface-1 border border-border rounded text-foreground placeholder-muted-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 resize-none"
               />
             </div>

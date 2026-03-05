@@ -108,14 +108,14 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground mt-1">Sign in to continue</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" suppressHydrationWarning>
           {error && (
             <div role="alert" className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <div>
+          <div suppressHydrationWarning>
             <label htmlFor="username" className="block text-sm font-medium text-foreground mb-1.5">Username</label>
             <input
               id="username"
@@ -128,10 +128,11 @@ export default function LoginPage() {
               autoFocus
               required
               aria-required="true"
+              suppressHydrationWarning
             />
           </div>
 
-          <div>
+          <div suppressHydrationWarning>
             <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">Password</label>
             <input
               id="password"
@@ -143,6 +144,7 @@ export default function LoginPage() {
               autoComplete="current-password"
               required
               aria-required="true"
+              suppressHydrationWarning
             />
           </div>
 

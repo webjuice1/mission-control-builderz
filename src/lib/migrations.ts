@@ -676,6 +676,30 @@ const migrations: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_workspace_id ON webhook_deliveries(workspace_id)`)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_token_usage_workspace_id ON token_usage(workspace_id)`)
     }
+  },
+  {
+    id: '024_task_dependencies',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_dependencies (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          parent_task_id INTEGER NOT NULL,
+          child_task_id INTEGER,
+          template_config TEXT,
+          execution_order INTEGER DEFAULT 0,
+          workspace_id INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER DEFAULT (unixepoch()),
+          FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+          FOREIGN KEY (child_task_id) REFERENCES tasks(id) ON DELETE SET NULL
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_deps_parent ON task_dependencies(parent_task_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_deps_child ON task_dependencies(child_task_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_deps_workspace ON task_dependencies(workspace_id)`)
+
+      // Add 'blocked' status support - tasks waiting on dependencies
+      // No schema change needed since status is TEXT, just documenting the convention
+    }
   }
 ]
 

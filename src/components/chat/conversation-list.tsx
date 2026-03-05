@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { useMissionControl, Conversation, Agent } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { createClientLogger } from '@/lib/client-logger'
+import { getAgentDisplayName } from '@/lib/agent-identity'
 
 const log = createClientLogger('ConversationList')
 
@@ -133,8 +134,8 @@ export function ConversationList({ onNewConversation }: ConversationListProps) {
               className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-accent/50 flex items-center gap-2 transition-smooth"
             >
               <div className={`w-1.5 h-1.5 rounded-full ${STATUS_COLORS[agent.status] || STATUS_COLORS.offline}`} />
-              <span className="font-medium text-foreground">{agent.name}</span>
-              <span className="text-muted-foreground/50 text-[10px] ml-auto truncate max-w-[60px]">{agent.role}</span>
+              <span className="font-medium text-foreground">{getAgentDisplayName(agent.name)}</span>
+              <span className="text-muted-foreground/50 text-[10px] ml-auto truncate max-w-[60px]">{agent.name}</span>
             </button>
           ))}
           {agents.length === 0 && (

@@ -194,29 +194,47 @@ async function getSystemStatus(workspaceId: number) {
   }
 
   try {
-    // System uptime
-    const { stdout: uptimeOutput } = await runCommand('uptime', ['-s'], {
-      timeoutMs: 3000
-    })
-    const bootTime = new Date(uptimeOutput.trim())
-    status.uptime = Date.now() - bootTime.getTime()
+    // System uptime (macOS + Linux)
+    const isMac = process.platform === 'darwin'
+    if (isMac) {
+      const { stdout: sysctlOut } = await runCommand('/usr/sbin/sysctl', ['-n', 'kern.boottime'], { timeoutMs: 3000 })
+      const match = sysctlOut.match(/sec\s*=\s*(\d+)/)
+      if (match) {
+        status.uptime = Date.now() - parseInt(match[1]) * 1000
+      }
+    } else {
+      const { stdout: uptimeOutput } = await runCommand('uptime', ['-s'], { timeoutMs: 3000 })
+      const bootTime = new Date(uptimeOutput.trim())
+      status.uptime = Date.now() - bootTime.getTime()
+    }
   } catch (error) {
     logger.error({ err: error }, 'Error getting uptime')
   }
 
   try {
-    // Memory info
-    const { stdout: memOutput } = await runCommand('free', ['-m'], {
-      timeoutMs: 3000
-    })
-    const memLines = memOutput.split('\n')
-    const memLine = memLines.find(line => line.startsWith('Mem:'))
-    if (memLine) {
-      const parts = memLine.split(/\s+/)
-      status.memory = {
-        total: parseInt(parts[1]) || 0,
-        used: parseInt(parts[2]) || 0,
-        available: parseInt(parts[6]) || 0
+    // Memory info (macOS + Linux)
+    const isMac = process.platform === 'darwin'
+    if (isMac) {
+      const { stdout: sysctlMem } = await runCommand('/usr/sbin/sysctl', ['-n', 'hw.memsize'], { timeoutMs: 3000 })
+      const totalBytes = parseInt(sysctlMem.trim()) || 0
+      const totalMB = Math.round(totalBytes / 1024 / 1024)
+      const { stdout: vmStat } = await runCommand('/usr/bin/vm_stat', [], { timeoutMs: 3000 })
+      const pageSize = 16384
+      const freeMatch = vmStat.match(/Pages free:\s+(\d+)/)
+      const inactiveMatch = vmStat.match(/Pages inactive:\s+(\d+)/)
+      const freeMB = Math.round(((parseInt(freeMatch?.[1] || '0') + parseInt(inactiveMatch?.[1] || '0')) * pageSize) / 1024 / 1024)
+      status.memory = { total: totalMB, used: totalMB - freeMB, available: freeMB }
+    } else {
+      const { stdout: memOutput } = await runCommand('free', ['-m'], { timeoutMs: 3000 })
+      const memLines = memOutput.split('\n')
+      const memLine = memLines.find(line => line.startsWith('Mem:'))
+      if (memLine) {
+        const parts = memLine.split(/\s+/)
+        status.memory = {
+          total: parseInt(parts[1]) || 0,
+          used: parseInt(parts[2]) || 0,
+          available: parseInt(parts[6]) || 0
+        }
       }
     }
   } catch (error) {
@@ -415,12 +433,12 @@ async function performHealthCheck() {
 
   // Check disk space
   try {
-    const { stdout } = await runCommand('df', ['/', '--output=pcent'], {
-      timeoutMs: 3000
-    })
+    // df -h / works on both macOS and Linux; parse the Capacity/Use% column
+    const { stdout } = await runCommand('df', ['-h', '/'], { timeoutMs: 3000 })
     const lines = stdout.trim().split('\n')
-    const last = lines[lines.length - 1] || ''
-    const usagePercent = parseInt(last.replace('%', '').trim() || '0')
+    const dataLine = lines[lines.length - 1] || ''
+    const percentMatch = dataLine.match(/(\d+)%/)
+    const usagePercent = percentMatch ? parseInt(percentMatch[1]) : 0
     
     health.checks.push({
       name: 'Disk Space',
@@ -435,15 +453,28 @@ async function performHealthCheck() {
     })
   }
 
-  // Check memory usage
+  // Check memory usage (macOS + Linux)
   try {
-    const { stdout } = await runCommand('free', ['-m'], { timeoutMs: 3000 })
-    const lines = stdout.split('\n')
-    const memLine = lines.find((line) => line.startsWith('Mem:'))
-    const parts = (memLine || '').split(/\s+/)
-    const total = parseInt(parts[1] || '0')
-    const available = parseInt(parts[6] || '0')
-    const usagePercent = Math.round(((total - available) / total) * 100)
+    const isMac = process.platform === 'darwin'
+    let usagePercent = 0
+    if (isMac) {
+      const { stdout: sysctlMem } = await runCommand('/usr/sbin/sysctl', ['-n', 'hw.memsize'], { timeoutMs: 3000 })
+      const totalBytes = parseInt(sysctlMem.trim()) || 1
+      const { stdout: vmStat } = await runCommand('/usr/bin/vm_stat', [], { timeoutMs: 3000 })
+      const pageSize = 16384
+      const freeMatch = vmStat.match(/Pages free:\s+(\d+)/)
+      const inactiveMatch = vmStat.match(/Pages inactive:\s+(\d+)/)
+      const freeBytes = (parseInt(freeMatch?.[1] || '0') + parseInt(inactiveMatch?.[1] || '0')) * pageSize
+      usagePercent = Math.round(((totalBytes - freeBytes) / totalBytes) * 100)
+    } else {
+      const { stdout } = await runCommand('free', ['-m'], { timeoutMs: 3000 })
+      const lines = stdout.split('\n')
+      const memLine = lines.find((line) => line.startsWith('Mem:'))
+      const parts = (memLine || '').split(/\s+/)
+      const total = parseInt(parts[1] || '0')
+      const available = parseInt(parts[6] || '0')
+      usagePercent = Math.round(((total - available) / total) * 100)
+    }
 
     health.checks.push({
       name: 'Memory Usage',

@@ -195,7 +195,7 @@ function deriveFromSessions(): TokenUsageRecord[] {
   const records: TokenUsageRecord[] = []
 
   for (const session of sessions) {
-    if (!session.totalTokens && !session.model) continue // Skip empty sessions
+    if (!session.totalTokens) continue // Skip sessions with no token usage
 
     const totalTokens = session.totalTokens || 0
     const inputTokens = session.inputTokens || Math.round(totalTokens * 0.7)

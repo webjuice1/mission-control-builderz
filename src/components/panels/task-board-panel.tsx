@@ -11,6 +11,7 @@ import { useFocusTrap } from '@/lib/use-focus-trap'
 
 import { AgentAvatar } from '@/components/ui/agent-avatar'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
+import { getAgentDisplayName } from '@/lib/agent-identity'
 
 const log = createClientLogger('TaskBoard')
 
@@ -58,6 +59,7 @@ interface Comment {
 
 const statusColumns = [
   { key: 'inbox', title: 'Inbox', color: 'bg-secondary text-foreground' },
+  { key: 'blocked', title: 'Blocked', color: 'bg-red-500/20 text-red-400' },
   { key: 'assigned', title: 'Assigned', color: 'bg-blue-500/20 text-blue-400' },
   { key: 'in_progress', title: 'In Progress', color: 'bg-yellow-500/20 text-yellow-400' },
   { key: 'review', title: 'Review', color: 'bg-purple-500/20 text-purple-400' },
@@ -308,10 +310,11 @@ export function TaskBoardPanel() {
     return 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20'
   }
 
-  // Get agent name by session key
+  // Get agent display name by session key
   const getAgentName = (sessionKey?: string) => {
+    if (!sessionKey) return 'Unassigned'
     const agent = agents.find(a => a.name === sessionKey)
-    return agent?.name || sessionKey || 'Unassigned'
+    return agent ? getAgentDisplayName(agent.name) : sessionKey
   }
 
   if (loading) {
@@ -742,7 +745,7 @@ function TaskDetailModal({
                   {task.assigned_to ? (
                     <>
                       <AgentAvatar name={task.assigned_to} size="xs" />
-                      <span>{task.assigned_to}</span>
+                      <span>{getAgentDisplayName(task.assigned_to)}</span>
                     </>
                   ) : (
                     <span>Unassigned</span>
@@ -1006,7 +1009,7 @@ function CreateTaskModal({
                   <option value="">Unassigned</option>
                   {agents.map(agent => (
                     <option key={agent.name} value={agent.name}>
-                      {agent.name} ({agent.role})
+                      {getAgentDisplayName(agent.name)} ({agent.role})
                     </option>
                   ))}
                 </select>

@@ -49,31 +49,10 @@ interface AgentOption {
   role?: string
 }
 
-// Agent identity: color + emoji (matches openclaw.json)
-const AGENT_IDENTITY: Record<string, { color: string; emoji: string; label: string }> = {
-  [COORDINATOR_AGENT]: { color: '#a78bfa', emoji: '🧭', label: 'Coordinator' },
-  builder:        { color: '#60a5fa', emoji: '🛠️', label: 'Builder' },
-  research:       { color: '#4ade80', emoji: '🔬', label: 'Research' },
-  content:        { color: '#818cf8', emoji: '✏️', label: 'Content' },
-  ops:            { color: '#fb923c', emoji: '⚡', label: 'Ops' },
-  quant:          { color: '#facc15', emoji: '📈', label: 'Quant' },
-  aegis:          { color: '#f87171', emoji: '🧪', label: 'Aegis' },
-  reviewer:       { color: '#2dd4bf', emoji: '🧪', label: 'Reviewer' },
-  design:         { color: '#f472b6', emoji: '🎨', label: 'Design' },
-  seo:            { color: '#22d3ee', emoji: '🔎', label: 'SEO' },
-  security:       { color: '#fb7185', emoji: '🛡️', label: 'Security' },
-  ai:             { color: '#8b5cf6', emoji: '🤖', label: 'AI' },
-  'frontend-dev': { color: '#38bdf8', emoji: '🧩', label: 'Frontend Dev' },
-  'backend-dev':  { color: '#34d399', emoji: '⚙️', label: 'Backend Dev' },
-  'solana-dev':   { color: '#fbbf24', emoji: '🦀', label: 'Solana Dev' },
-}
+import { getAgentIdentity } from '@/lib/agent-identity'
 
 function getIdentity(name: string) {
-  return AGENT_IDENTITY[name.toLowerCase()] || {
-    color: '#9ca3af',
-    emoji: name.charAt(0).toUpperCase(),
-    label: name.charAt(0).toUpperCase() + name.slice(1),
-  }
+  return getAgentIdentity(name)
 }
 
 function formatTime(ts: number): string {

@@ -7,6 +7,7 @@ import { createClientLogger } from '@/lib/client-logger'
 import { ConversationList } from './conversation-list'
 import { MessageList } from './message-list'
 import { ChatInput } from './chat-input'
+import { getAgentIdentity, getAgentDisplayName } from '@/lib/agent-identity'
 
 const log = createClientLogger('ChatPanel')
 
@@ -246,7 +247,7 @@ export function ChatPanel() {
                   <AgentAvatar name={activeConversation.replace('agent_', '')} size="sm" />
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-foreground truncate">
-                      {activeConversation.replace('agent_', '')}
+                      {getAgentDisplayName(activeConversation.replace('agent_', ''))}
                     </div>
                     <div className="text-[10px] text-muted-foreground">
                       {getAgentStatus(agents, activeConversation)}
@@ -271,22 +272,15 @@ export function ChatPanel() {
 
 // Inline avatar component
 function AgentAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
-  const colors: Record<string, string> = {
-    coordinator: 'bg-purple-500/20 text-purple-400',
-    aegis: 'bg-red-500/20 text-red-400',
-    research: 'bg-green-500/20 text-green-400',
-    ops: 'bg-orange-500/20 text-orange-400',
-    reviewer: 'bg-teal-500/20 text-teal-400',
-    content: 'bg-indigo-500/20 text-indigo-400',
-    human: 'bg-primary/20 text-primary',
-  }
-
-  const colorClass = colors[name.toLowerCase()] || 'bg-muted text-muted-foreground'
-  const sizeClass = size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-xs'
+  const identity = getAgentIdentity(name)
+  const sizeClass = size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-sm'
 
   return (
-    <div className={`${sizeClass} ${colorClass} rounded-full flex items-center justify-center font-bold flex-shrink-0`}>
-      {name.charAt(0).toUpperCase()}
+    <div
+      className={`${sizeClass} rounded-full flex items-center justify-center font-bold flex-shrink-0`}
+      style={{ backgroundColor: `${identity.color}33`, color: identity.color }}
+    >
+      {identity.emoji}
     </div>
   )
 }

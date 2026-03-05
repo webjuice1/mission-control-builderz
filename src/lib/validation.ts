@@ -29,7 +29,7 @@ export async function validateBody<T>(
 export const createTaskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500),
   description: z.string().max(5000).optional(),
-  status: z.enum(['inbox', 'assigned', 'in_progress', 'review', 'quality_review', 'done']).default('inbox'),
+  status: z.enum(['inbox', 'assigned', 'in_progress', 'review', 'quality_review', 'done', 'blocked']).default('inbox'),
   priority: z.enum(['critical', 'high', 'medium', 'low']).default('medium'),
   assigned_to: z.string().max(100).optional(),
   created_by: z.string().max(100).optional(),
@@ -57,7 +57,7 @@ export const createAgentSchema = z.object({
 export const bulkUpdateTaskStatusSchema = z.object({
   tasks: z.array(z.object({
     id: z.number().int().positive(),
-    status: z.enum(['inbox', 'assigned', 'in_progress', 'review', 'quality_review', 'done']),
+    status: z.enum(['inbox', 'assigned', 'in_progress', 'review', 'quality_review', 'done', 'blocked']),
   })).min(1, 'At least one task is required').max(100),
 })
 

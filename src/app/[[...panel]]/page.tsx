@@ -36,7 +36,7 @@ import { ChatPanel } from '@/components/chat/chat-panel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { LocalModeBanner } from '@/components/layout/local-mode-banner'
 import { UpdateBanner } from '@/components/layout/update-banner'
-import { PromoBanner } from '@/components/layout/promo-banner'
+// PromoBanner removed — nyk branding cleared
 import { useWebSocket } from '@/lib/websocket'
 import { useServerEvents } from '@/lib/use-server-events'
 import { useMissionControl } from '@/store'
@@ -151,7 +151,7 @@ export default function Home() {
         <HeaderBar />
         <LocalModeBanner />
         <UpdateBanner />
-        <PromoBanner />
+        {/* PromoBanner removed — nyk branding cleared */}
         <main id="main-content" className="flex-1 overflow-auto pb-16 md:pb-0" role="main">
           <div aria-live="polite">
             <ErrorBoundary key={activeTab}>

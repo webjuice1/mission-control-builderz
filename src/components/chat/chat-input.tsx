@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useMissionControl } from '@/store'
+import { getAgentIdentity } from '@/lib/agent-identity'
 
 interface ChatInputProps {
   onSend: (content: string) => void
@@ -134,10 +135,10 @@ export function ChatInput({ onSend, disabled, agents = [] }: ChatInputProps) {
               }}
             >
               <div className="w-5 h-5 rounded-full bg-surface-2 flex items-center justify-center text-[9px] font-bold text-muted-foreground">
-                {agent.name.charAt(0).toUpperCase()}
+                {getAgentIdentity(agent.name).emoji}
               </div>
-              <span className="font-medium text-foreground">@{agent.name}</span>
-              <span className="text-muted-foreground text-xs ml-auto">{agent.role}</span>
+              <span className="font-medium text-foreground">@{getAgentIdentity(agent.name).label}</span>
+              <span className="text-muted-foreground text-xs ml-auto">{agent.name}</span>
             </button>
           ))}
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useMissionControl, Agent } from '@/store'
+import { getAgentIdentity, getAgentDisplayName } from '@/lib/agent-identity'
 
 type ViewMode = 'office' | 'org-chart'
 
@@ -194,12 +195,12 @@ export function OfficePanel() {
                   </div>
 
                   <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-12 h-12 rounded-full ${hashColor(agent.name)} flex items-center justify-center text-white font-bold text-sm shrink-0 ring-2 ring-offset-2 ring-offset-card ${agent.status === 'busy' ? 'ring-yellow-500 animate-pulse' : agent.status === 'idle' ? 'ring-green-500' : agent.status === 'error' ? 'ring-red-500' : 'ring-gray-600'}`}>
-                      {getInitials(agent.name)}
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0 ring-2 ring-offset-2 ring-offset-card ${agent.status === 'busy' ? 'ring-yellow-500 animate-pulse' : agent.status === 'idle' ? 'ring-green-500' : agent.status === 'error' ? 'ring-red-500' : 'ring-gray-600'}`} style={{ backgroundColor: getAgentIdentity(agent.name).color }}>
+                      {getAgentIdentity(agent.name).emoji}
                     </div>
                     <div className="min-w-0">
-                      <div className="font-semibold text-foreground text-sm truncate">{agent.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{agent.role}</div>
+                      <div className="font-semibold text-foreground text-sm truncate">{getAgentDisplayName(agent.name)}</div>
+                      <div className="text-xs text-muted-foreground truncate">{agent.name} · {agent.role}</div>
                     </div>
                   </div>
 
@@ -252,11 +253,11 @@ export function OfficePanel() {
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all hover:scale-[1.02] ${statusGlow[agent.status]}`}
                     style={{ background: 'var(--card)' }}
                   >
-                    <div className={`w-8 h-8 rounded-full ${hashColor(agent.name)} flex items-center justify-center text-white font-bold text-xs`}>
-                      {getInitials(agent.name)}
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ backgroundColor: getAgentIdentity(agent.name).color }}>
+                      {getAgentIdentity(agent.name).emoji}
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-foreground">{agent.name}</div>
+                      <div className="text-sm font-medium text-foreground">{getAgentDisplayName(agent.name)}</div>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
                         <span className={`w-1.5 h-1.5 rounded-full ${statusDot[agent.status]}`} />
                         {statusLabel[agent.status]}
@@ -275,12 +276,12 @@ export function OfficePanel() {
           <div className="bg-card border border-border rounded-xl max-w-sm w-full p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
-                <div className={`w-14 h-14 rounded-full ${hashColor(selectedAgent.name)} flex items-center justify-center text-white font-bold text-lg ring-2 ring-offset-2 ring-offset-card ${selectedAgent.status === 'busy' ? 'ring-yellow-500' : selectedAgent.status === 'idle' ? 'ring-green-500' : selectedAgent.status === 'error' ? 'ring-red-500' : 'ring-gray-600'}`}>
-                  {getInitials(selectedAgent.name)}
+                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ring-2 ring-offset-2 ring-offset-card" style={{ backgroundColor: getAgentIdentity(selectedAgent.name).color, ringColor: selectedAgent.status === 'busy' ? '#eab308' : selectedAgent.status === 'idle' ? '#22c55e' : selectedAgent.status === 'error' ? '#ef4444' : '#4b5563' }}>
+                  {getAgentIdentity(selectedAgent.name).emoji}
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">{selectedAgent.name}</h3>
-                  <p className="text-sm text-muted-foreground">{selectedAgent.role}</p>
+                  <h3 className="text-lg font-bold text-foreground">{getAgentDisplayName(selectedAgent.name)}</h3>
+                  <p className="text-sm text-muted-foreground">{selectedAgent.name} · {selectedAgent.role}</p>
                 </div>
               </div>
               <button onClick={() => setSelectedAgent(null)} className="text-muted-foreground hover:text-foreground text-xl">×</button>
