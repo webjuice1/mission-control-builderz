@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { readFile, writeFile, access } from 'fs/promises'
-import { dirname } from 'path'
+import { readFile, writeFile, access, readdir } from 'fs/promises'
+import { dirname, join } from 'path'
 import { config, ensureDirExists } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { getAllGatewaySessions } from '@/lib/sessions'
@@ -493,6 +493,93 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (error) {
     logger.error({ err: error }, 'Tokens API error')
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * Zero out token fields in all OpenClaw agent session files.
+ * Uses the same path resolution as getAllGatewaySessions / deriveFromSessions.
+ */
+async function zeroOutSessionTokens(): Promise<number> {
+  const openclawHome = config.openclawHome
+  if (!openclawHome) return 0
+
+  const agentsDir = join(openclawHome, 'agents')
+  let agentDirs: string[]
+  try {
+    agentDirs = await readdir(agentsDir)
+  } catch {
+    return 0
+  }
+
+  let filesModified = 0
+
+  for (const agentName of agentDirs) {
+    const sessionsFile = join(agentsDir, agentName, 'sessions', 'sessions.json')
+    try {
+      const raw = await readFile(sessionsFile, 'utf-8')
+      const data = JSON.parse(raw)
+      let modified = false
+
+      for (const key of Object.keys(data)) {
+        const session = data[key]
+        if (session.totalTokens || session.inputTokens || session.outputTokens || session.contextTokens) {
+          session.totalTokens = 0
+          session.inputTokens = 0
+          session.outputTokens = 0
+          session.contextTokens = 0
+          modified = true
+        }
+      }
+
+      if (modified) {
+        await writeFile(sessionsFile, JSON.stringify(data, null, 2))
+        filesModified++
+        logger.info({ agent: agentName }, 'Zeroed out token counts in session file')
+      }
+    } catch {
+      // Skip agents without valid session files
+    }
+  }
+
+  return filesModified
+}
+
+export async function DELETE(request: NextRequest) {
+  const auth = requireRole(request, 'operator')
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  try {
+    // Clear the database token_usage table
+    try {
+      const db = getDatabase()
+      db.prepare('DELETE FROM token_usage').run()
+      logger.info('Cleared token_usage table')
+    } catch (err) {
+      logger.warn({ err }, 'Failed to clear token_usage table (may not exist)')
+    }
+
+    // Clear the JSON file
+    try {
+      await saveTokenData([])
+      logger.info('Cleared tokens JSON file')
+    } catch (err) {
+      logger.warn({ err }, 'Failed to clear tokens JSON file')
+    }
+
+    // Zero out token counts in OpenClaw agent session files
+    // This prevents deriveFromSessions() from repopulating token data
+    try {
+      const filesModified = await zeroOutSessionTokens()
+      logger.info({ filesModified }, 'Zeroed out token counts in agent session files')
+    } catch (err) {
+      logger.warn({ err }, 'Failed to zero out agent session token counts')
+    }
+
+    return NextResponse.json({ success: true, message: 'All cost data has been reset' })
+  } catch (error) {
+    logger.error({ err: error }, 'Error resetting token data')
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

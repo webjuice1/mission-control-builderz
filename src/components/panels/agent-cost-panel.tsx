@@ -29,6 +29,9 @@ export function AgentCostPanel() {
   const [data, setData] = useState<AgentCostsResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+  const [resetMessage, setResetMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
@@ -44,6 +47,29 @@ export function AgentCostPanel() {
   }, [selectedTimeframe])
 
   useEffect(() => { loadData() }, [loadData])
+
+  const handleReset = async () => {
+    setIsResetting(true)
+    setResetMessage(null)
+    try {
+      const res = await fetch('/api/tokens', { method: 'DELETE' })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setResetMessage({ type: 'success', text: 'All cost data has been reset successfully.' })
+        setData(null)
+        setShowResetConfirm(false)
+        // Reload after a brief delay
+        setTimeout(() => { loadData(); setResetMessage(null) }, 2000)
+      } else {
+        setResetMessage({ type: 'error', text: json.error || 'Failed to reset cost data.' })
+      }
+    } catch (err) {
+      log.error('Failed to reset costs:', err)
+      setResetMessage({ type: 'error', text: 'Network error while resetting cost data.' })
+    } finally {
+      setIsResetting(false)
+    }
+  }
 
   const formatNumber = (num: number) => {
     if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M'
@@ -107,23 +133,74 @@ export function AgentCostPanel() {
             <h1 className="text-3xl font-bold text-foreground">Agent Cost Breakdown</h1>
             <p className="text-muted-foreground mt-2">Per-agent token usage and spend analysis</p>
           </div>
-          <div className="flex space-x-2">
-            {(['hour', 'day', 'week', 'month'] as const).map((tf) => (
-              <button
-                key={tf}
-                onClick={() => setSelectedTimeframe(tf)}
-                className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
-                  selectedTimeframe === tf
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80'
-                }`}
-              >
-                {tf.charAt(0).toUpperCase() + tf.slice(1)}
-              </button>
-            ))}
+          <div className="flex items-center space-x-3">
+            <div className="flex space-x-2">
+              {(['hour', 'day', 'week', 'month'] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setSelectedTimeframe(tf)}
+                  className={`px-4 py-2 text-sm rounded-md font-medium transition-colors ${
+                    selectedTimeframe === tf
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80'
+                  }`}
+                >
+                  {tf.charAt(0).toUpperCase() + tf.slice(1)}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowResetConfirm(true)}
+              className="px-3 py-2 text-sm rounded-md font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/30 transition-colors flex items-center gap-1.5"
+              title="Reset all cost data"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+              Reset
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Reset Confirmation Dialog */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-foreground mb-2">Reset Cost Data</h3>
+            <p className="text-muted-foreground mb-6">Are you sure? This will reset all cost data. This action cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-2 text-sm rounded-md bg-secondary text-foreground hover:bg-secondary/80 transition-colors"
+                disabled={isResetting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReset}
+                className="px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors flex items-center gap-2"
+                disabled={isResetting}
+              >
+                {isResetting && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />}
+                {isResetting ? 'Resetting...' : 'Yes, Reset All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status Toast */}
+      {resetMessage && (
+        <div className={`p-3 rounded-md text-sm ${
+          resetMessage.type === 'success'
+            ? 'bg-green-500/10 text-green-500 border border-green-500/30'
+            : 'bg-red-500/10 text-red-500 border border-red-500/30'
+        }`}>
+          {resetMessage.text}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center h-32">
