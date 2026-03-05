@@ -49,6 +49,7 @@ interface SoulTemplate {
 
 const statusColors: Record<string, string> = {
   offline: 'bg-gray-500',
+  standby: 'bg-slate-400',
   idle: 'bg-green-500',
   busy: 'bg-yellow-500',
   error: 'bg-red-500',
@@ -56,6 +57,7 @@ const statusColors: Record<string, string> = {
 
 const statusIcons: Record<string, string> = {
   offline: '-',
+  standby: '·',
   idle: 'o',
   busy: '~',
   error: '!',
@@ -837,6 +839,7 @@ export function CreateAgentModal({
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelProviders, setModelProviders] = useState<ModelProviderGroup[]>([])
   const [formData, setFormData] = useState({
     name: '',
     id: '',
@@ -863,6 +866,15 @@ export function CreateAgentModal({
 
   useEffect(() => {
     const loadAvailableModels = async () => {
+      try {
+        const response = await fetch('/api/models')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.providers) setModelProviders(data.providers)
+          if (data.flat) setAvailableModels(data.flat.map((m: any) => m.name))
+          return
+        }
+      } catch { /* fallback */ }
       try {
         const response = await fetch('/api/status?action=models')
         if (!response.ok) return
@@ -1095,19 +1107,30 @@ export function CreateAgentModal({
 
               <div>
                 <label className="block text-sm text-muted-foreground mb-1">Primary Model</label>
-                <input
-                  type="text"
-                  value={formData.modelPrimary}
-                  onChange={(e) => setFormData(prev => ({ ...prev, modelPrimary: e.target.value }))}
-                  list="create-agent-model-suggestions"
-                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm"
-                  placeholder={DEFAULT_MODEL_BY_TIER[formData.modelTier]}
-                />
-                <datalist id="create-agent-model-suggestions">
-                  {availableModels.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
+                {modelProviders.length > 0 ? (
+                  <ModelSelect
+                    value={formData.modelPrimary}
+                    onChange={(value) => setFormData(prev => ({ ...prev, modelPrimary: value }))}
+                    providers={modelProviders}
+                    placeholder={`Select model (default: ${DEFAULT_MODEL_BY_TIER[formData.modelTier]})`}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={formData.modelPrimary}
+                    onChange={(e) => setFormData(prev => ({ ...prev, modelPrimary: e.target.value }))}
+                    list="create-agent-model-suggestions"
+                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm"
+                    placeholder={DEFAULT_MODEL_BY_TIER[formData.modelTier]}
+                  />
+                )}
+                {!modelProviders.length && (
+                  <datalist id="create-agent-model-suggestions">
+                    {availableModels.map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                  </datalist>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-4">
@@ -1237,6 +1260,55 @@ export function CreateAgentModal({
   )
 }
 
+// Types for model API response
+interface ModelProviderGroup {
+  provider: string
+  label: string
+  models: {
+    name: string
+    alias: string
+    description: string
+    costPer1k: number
+    tier: string
+    tierLabel: string
+    tierColor: string
+  }[]
+}
+
+// Model selector dropdown component (grouped by provider with tier badges)
+function ModelSelect({
+  value,
+  onChange,
+  providers,
+  placeholder,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  providers: ModelProviderGroup[]
+  placeholder?: string
+  className?: string
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`w-full bg-surface-1 text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 ${className || ''}`}
+    >
+      <option value="">{placeholder || 'Select a model...'}</option>
+      {providers.map((group) => (
+        <optgroup key={group.provider} label={group.label}>
+          {group.models.map((m) => (
+            <option key={m.name} value={m.name}>
+              {m.name.split('/').pop()} {m.tierLabel} — {m.description}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
 // Config Tab Component for Agent Detail Modal
 export function ConfigTab({
   agent,
@@ -1250,8 +1322,10 @@ export function ConfigTab({
   const [showJson, setShowJson] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [jsonInput, setJsonInput] = useState('')
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelProviders, setModelProviders] = useState<ModelProviderGroup[]>([])
   const [newFallbackModel, setNewFallbackModel] = useState('')
   const [newAllowTool, setNewAllowTool] = useState('')
   const [newDenyTool, setNewDenyTool] = useState('')
@@ -1263,6 +1337,22 @@ export function ConfigTab({
 
   useEffect(() => {
     const loadAvailableModels = async () => {
+      try {
+        // Try new /api/models endpoint first (grouped with metadata)
+        const response = await fetch('/api/models')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.providers) {
+            setModelProviders(data.providers)
+          }
+          if (data.flat) {
+            setAvailableModels(data.flat.map((m: any) => m.name))
+          }
+          return
+        }
+      } catch {
+        // Fall back to old endpoint
+      }
       try {
         const response = await fetch('/api/status?action=models')
         if (!response.ok) return
@@ -1281,7 +1371,11 @@ export function ConfigTab({
 
   const updateModelConfig = (updater: (current: { primary?: string; fallbacks?: string[] }) => { primary?: string; fallbacks?: string[] }) => {
     setConfig((prev: any) => {
-      const nextModel = updater({ ...(prev?.model || {}) })
+      // Normalize string model to object before spreading (prevents character spread corruption)
+      const currentModel = typeof prev?.model === 'string'
+        ? { primary: prev.model, fallbacks: [] }
+        : (prev?.model || {})
+      const nextModel = updater({ ...currentModel })
       const dedupedFallbacks = [...new Set((nextModel.fallbacks || []).map((value) => value.trim()).filter(Boolean))]
       return {
         ...prev,
@@ -1340,24 +1434,40 @@ export function ConfigTab({
   const handleSave = async (writeToGateway: boolean = false) => {
     setSaving(true)
     setError(null)
+    setSuccessMsg(null)
     try {
+      const payload = showJson ? JSON.parse(jsonInput) : config
       if (!showJson) {
         const primary = String(config?.model?.primary || '').trim()
         if (!primary) {
           throw new Error('Primary model is required')
         }
       }
+      // Debug: log what we're about to send so save issues are traceable
+      log.info('ConfigTab save:', {
+        agentId: agent.id,
+        writeToGateway,
+        modelPayload: payload?.model,
+        fallbackCount: Array.isArray(payload?.model?.fallbacks) ? payload.model.fallbacks.length : 0,
+      })
       const response = await fetch(`/api/agents/${agent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gateway_config: showJson ? JSON.parse(jsonInput) : config,
+          gateway_config: payload,
           write_to_gateway: writeToGateway,
         }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Failed to save')
-      if (data.warning) setError(data.warning)
+      if (data.warning) {
+        setError(data.warning)
+      } else {
+        const target = writeToGateway ? 'Mission Control + Gateway' : 'Mission Control'
+        const fallbacks = Array.isArray(payload?.model?.fallbacks) ? payload.model.fallbacks : []
+        setSuccessMsg(`✓ Model config saved to ${target}${fallbacks.length ? ` (${fallbacks.length} fallback${fallbacks.length > 1 ? 's' : ''})` : ''}`)
+        setTimeout(() => setSuccessMsg(null), 4000)
+      }
       setEditing(false)
       onSave()
     } catch (err: any) {
@@ -1414,6 +1524,12 @@ export function ConfigTab({
         </div>
       )}
 
+      {successMsg && (
+        <div className="bg-green-500/10 border border-green-500/20 text-green-400 p-3 rounded-lg text-sm animate-in fade-in">
+          {successMsg}
+        </div>
+      )}
+
       {config.openclawId && (
         <div className="text-xs text-muted-foreground">
           OpenClaw ID: <span className="font-mono text-foreground">{config.openclawId}</span>
@@ -1447,58 +1563,111 @@ export function ConfigTab({
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Primary model</label>
-                  <input
-                    value={modelPrimary}
-                    onChange={(e) => updateModelConfig((current) => ({ ...current, primary: e.target.value }))}
-                    list="agent-model-suggestions"
-                    placeholder="anthropic/claude-sonnet-4-20250514"
-                    className="w-full bg-surface-1 text-foreground rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  <datalist id="agent-model-suggestions">
-                    {availableModels.map((name) => (
-                      <option key={name} value={name} />
-                    ))}
-                  </datalist>
+                  {modelProviders.length > 0 ? (
+                    <ModelSelect
+                      value={modelPrimary}
+                      onChange={(value) => updateModelConfig((current) => ({ ...current, primary: value }))}
+                      providers={modelProviders}
+                      placeholder="Select primary model..."
+                    />
+                  ) : (
+                    <input
+                      value={modelPrimary}
+                      onChange={(e) => updateModelConfig((current) => ({ ...current, primary: e.target.value }))}
+                      list="agent-model-suggestions"
+                      placeholder="anthropic/claude-sonnet-4-6"
+                      className="w-full bg-surface-1 text-foreground rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                  )}
+                  {!modelProviders.length && (
+                    <datalist id="agent-model-suggestions">
+                      {availableModels.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
+                  )}
+                  {/* Show current selection info */}
+                  {modelPrimary && modelProviders.length > 0 && (() => {
+                    const found = modelProviders.flatMap(p => p.models).find(m => m.name === modelPrimary)
+                    return found ? (
+                      <div className="mt-1 text-xs text-muted-foreground flex items-center gap-2">
+                        <span className={found.tierColor}>{found.tierLabel}</span>
+                        <span>{found.description}</span>
+                        {found.costPer1k > 0 && <span className="text-muted-foreground/60">(~${found.costPer1k}/1k tokens)</span>}
+                      </div>
+                    ) : null
+                  })()}
                 </div>
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Fallback models</label>
                   <div className="space-y-2">
                     {modelFallbacks.map((fallback: string, index: number) => (
-                      <div key={`${fallback}-${index}`} className="flex gap-2">
-                        <input
-                          value={fallback}
-                          onChange={(e) => {
-                            const next = [...modelFallbacks]
-                            next[index] = e.target.value
-                            updateModelConfig((current) => ({ ...current, fallbacks: next }))
-                          }}
-                          list="agent-model-suggestions"
-                          className="flex-1 bg-surface-1 text-foreground rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                        />
+                      <div key={`${fallback}-${index}`} className="flex gap-2 items-center">
+                        <span className="text-xs text-muted-foreground w-4 text-right">{index + 1}.</span>
+                        {modelProviders.length > 0 ? (
+                          <div className="flex-1">
+                            <ModelSelect
+                              value={fallback}
+                              onChange={(value) => {
+                                const next = [...modelFallbacks]
+                                next[index] = value
+                                updateModelConfig((current) => ({ ...current, fallbacks: next }))
+                              }}
+                              providers={modelProviders}
+                              placeholder="Select fallback..."
+                              className="text-xs"
+                            />
+                          </div>
+                        ) : (
+                          <input
+                            value={fallback}
+                            onChange={(e) => {
+                              const next = [...modelFallbacks]
+                              next[index] = e.target.value
+                              updateModelConfig((current) => ({ ...current, fallbacks: next }))
+                            }}
+                            list="agent-model-suggestions"
+                            className="flex-1 bg-surface-1 text-foreground rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                          />
+                        )}
                         <button
                           onClick={() => {
                             const next = modelFallbacks.filter((_: string, i: number) => i !== index)
                             updateModelConfig((current) => ({ ...current, fallbacks: next }))
                           }}
-                          className="px-3 py-2 text-xs bg-red-500/10 text-red-400 border border-red-500/30 rounded hover:bg-red-500/20 transition-smooth"
+                          className="px-2 py-1.5 text-xs bg-red-500/10 text-red-400 border border-red-500/30 rounded hover:bg-red-500/20 transition-smooth"
+                          title="Remove fallback"
                         >
-                          Remove
+                          ✕
                         </button>
                       </div>
                     ))}
                     <div className="flex gap-2">
-                      <input
-                        value={newFallbackModel}
-                        onChange={(e) => setNewFallbackModel(e.target.value)}
-                        list="agent-model-suggestions"
-                        placeholder="Add fallback model"
-                        className="flex-1 bg-surface-1 text-foreground rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                      />
+                      {modelProviders.length > 0 ? (
+                        <div className="flex-1">
+                          <ModelSelect
+                            value={newFallbackModel}
+                            onChange={(value) => setNewFallbackModel(value)}
+                            providers={modelProviders}
+                            placeholder="Add fallback model..."
+                            className="text-xs"
+                          />
+                        </div>
+                      ) : (
+                        <input
+                          value={newFallbackModel}
+                          onChange={(e) => setNewFallbackModel(e.target.value)}
+                          list="agent-model-suggestions"
+                          placeholder="Add fallback model"
+                          className="flex-1 bg-surface-1 text-foreground rounded px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        />
+                      )}
                       <button
                         onClick={addFallbackModel}
-                        className="px-3 py-2 text-xs bg-secondary text-foreground rounded hover:bg-surface-2 transition-smooth"
+                        disabled={!newFallbackModel.trim()}
+                        className="px-3 py-2 text-xs bg-secondary text-foreground rounded hover:bg-surface-2 disabled:opacity-40 transition-smooth"
                       >
-                        Add
+                        + Add
                       </button>
                     </div>
                   </div>
@@ -1506,14 +1675,27 @@ export function ConfigTab({
               </div>
             ) : (
               <div className="text-sm">
-                <div><span className="text-muted-foreground">Primary:</span> <span className="text-foreground font-mono">{modelPrimary || 'not configured'}</span></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Primary:</span>
+                  <span className="text-foreground font-mono">{modelPrimary || 'not configured'}</span>
+                  {modelPrimary && modelProviders.length > 0 && (() => {
+                    const found = modelProviders.flatMap(p => p.models).find(m => m.name === modelPrimary)
+                    return found ? <span className={`text-xs ${found.tierColor}`}>{found.tierLabel}</span> : null
+                  })()}
+                </div>
                 {modelFallbacks.length > 0 && (
-                  <div className="mt-1">
+                  <div className="mt-2">
                     <span className="text-muted-foreground">Fallbacks:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {modelFallbacks.map((fb: string, i: number) => (
-                        <span key={i} className="px-2 py-0.5 text-xs bg-surface-2 rounded text-muted-foreground font-mono">{fb.split('/').pop()}</span>
-                      ))}
+                      {modelFallbacks.map((fb: string, i: number) => {
+                        const found = modelProviders.flatMap(p => p.models).find(m => m.name === fb)
+                        return (
+                          <span key={i} className="px-2 py-0.5 text-xs bg-surface-2 rounded text-muted-foreground font-mono inline-flex items-center gap-1">
+                            {fb.split('/').pop()}
+                            {found && <span className={`${found.tierColor} text-[10px]`}>{found.tierLabel}</span>}
+                          </span>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

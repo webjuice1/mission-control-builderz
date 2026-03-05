@@ -289,5 +289,5 @@ function getAgentStatus(agents: any[], conversationId: string): string {
   const name = conversationId.replace('agent_', '')
   const agent = agents.find(a => a.name.toLowerCase() === name.toLowerCase())
   if (!agent) return 'Unknown'
-  return agent.status === 'idle' || agent.status === 'busy' ? 'Online' : 'Offline'
+  return agent.status === 'idle' || agent.status === 'busy' ? 'Online' : agent.status === 'standby' ? 'Standby' : 'Offline'
 }

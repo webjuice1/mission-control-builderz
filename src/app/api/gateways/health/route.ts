@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRole } from "@/lib/auth"
 import { getDatabase } from "@/lib/db"
+import { getAllGatewaySessions } from "@/lib/sessions"
 
 interface GatewayEntry {
   id: number
@@ -131,6 +132,23 @@ export async function POST(request: NextRequest) {
         error: err.name === "AbortError" ? "timeout" : (err.message || "connection failed"),
       })
     }
+  }
+
+  // Enrich results with real session counts from disk
+  try {
+    const allSessions = getAllGatewaySessions()
+    const totalSessions = allSessions.length
+    const activeSessions = allSessions.filter(s => s.active).length
+    // Attribute sessions to the primary (or first online) gateway
+    const primaryResult = results.find(r => r.status === 'online')
+    if (primaryResult) {
+      primaryResult.sessions_count = totalSessions
+      // Also update sessions_count in DB for the gateway
+      db.prepare('UPDATE gateways SET sessions_count = ?, agents_count = ?, updated_at = (unixepoch()) WHERE id = ?')
+        .run(totalSessions, new Set(allSessions.map(s => s.agent)).size, primaryResult.id)
+    }
+  } catch (sessErr) {
+    // Best-effort session counting
   }
 
   return NextResponse.json({ results, probed_at: Date.now() })

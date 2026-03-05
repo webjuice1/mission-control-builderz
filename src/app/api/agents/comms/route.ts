@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getDatabase, Message } from "@/lib/db"
+import { getDatabase, Message, db_helpers } from "@/lib/db"
 import { requireRole } from '@/lib/auth'
+import { mutationLimiter } from '@/lib/rate-limit'
+import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
 /**
@@ -161,5 +163,95 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     logger.error({ err: error }, "GET /api/agents/comms error")
     return NextResponse.json({ error: "Failed to fetch agent communications" }, { status: 500 })
+  }
+}
+
+/**
+ * POST /api/agents/comms - Store an agent-to-agent message directly in DB
+ * Body: { from, to, message, type?, metadata? }
+ */
+export async function POST(request: NextRequest) {
+  const auth = requireRole(request, 'operator')
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  const rateCheck = mutationLimiter(request)
+  if (rateCheck) return rateCheck
+
+  try {
+    const db = getDatabase()
+    const workspaceId = auth.user.workspace_id ?? 1
+    const body = await request.json()
+
+    const from = (body.from || '').trim()
+    const to = (body.to || '').trim()
+    const message = (body.message || body.content || '').trim()
+    const messageType = body.type || body.message_type || 'text'
+    const metadata = body.metadata || null
+
+    if (!from || !to || !message) {
+      return NextResponse.json(
+        { error: '"from", "to", and "message" are required' },
+        { status: 400 }
+      )
+    }
+
+    const conversation_id = body.conversation_id || `a2a:${from}:${to}`
+
+    const stmt = db.prepare(`
+      INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    const result = stmt.run(
+      conversation_id,
+      from,
+      to,
+      message,
+      messageType,
+      metadata ? JSON.stringify(metadata) : null,
+      workspaceId
+    )
+
+    const messageId = result.lastInsertRowid as number
+    const created = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId) as Message
+
+    // Parse metadata for broadcast
+    const parsedMessage = {
+      ...created,
+      metadata: created.metadata ? JSON.parse(created.metadata) : null,
+    }
+
+    // Broadcast to SSE clients so the UI updates in real-time
+    eventBus.broadcast('chat.message', parsedMessage)
+
+    // Create notification for recipient
+    db_helpers.createNotification(
+      to,
+      'message',
+      'Agent Message',
+      `${from}: ${message.substring(0, 200)}${message.length > 200 ? '...' : ''}`,
+      'agent',
+      messageId,
+      workspaceId
+    )
+
+    // Log activity
+    db_helpers.logActivity(
+      'agent_message',
+      'message',
+      messageId,
+      from,
+      `Sent message to ${to}`,
+      { to, conversation_id },
+      workspaceId
+    )
+
+    return NextResponse.json({
+      success: true,
+      message: parsedMessage,
+    }, { status: 201 })
+  } catch (error) {
+    logger.error({ err: error }, "POST /api/agents/comms error")
+    return NextResponse.json({ error: "Failed to store agent message" }, { status: 500 })
   }
 }

@@ -80,10 +80,19 @@ export async function PUT(
     const now = Math.floor(Date.now() / 1000)
     const existingConfig = agent.config ? JSON.parse(agent.config) : {}
 
-    // Merge gateway_config into existing config
+    // Strip enriched workspace data that should never be persisted
+    // These fields are injected by enrichAgentConfigFromWorkspace on read
+    const ENRICHED_KEYS = ['identity', 'tools'] as const
+    const stripEnrichedFields = (cfg: Record<string, any>) => {
+      const clean = { ...cfg }
+      for (const key of ENRICHED_KEYS) delete clean[key]
+      return clean
+    }
+
+    // Merge gateway_config into existing config (without enriched fields)
     let newConfig = existingConfig
     if (gateway_config && typeof gateway_config === 'object') {
-      newConfig = { ...existingConfig, ...gateway_config }
+      newConfig = { ...existingConfig, ...stripEnrichedFields(gateway_config) }
     }
 
     // Build update
@@ -108,12 +117,11 @@ export async function PUT(
       try {
         const openclawId = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
 
-        // Build the config to write back (full OpenClaw format)
+        // Build the config to write back (core OpenClaw format only)
+        // Never write enriched workspace data (identity, tools) back to openclaw.json
         const writeBack: any = { id: openclawId }
         if (gateway_config.model) writeBack.model = gateway_config.model
-        if (gateway_config.identity) writeBack.identity = gateway_config.identity
         if (gateway_config.sandbox) writeBack.sandbox = gateway_config.sandbox
-        if (gateway_config.tools) writeBack.tools = gateway_config.tools
         if (gateway_config.subagents) writeBack.subagents = gateway_config.subagents
         if (gateway_config.memorySearch) writeBack.memorySearch = gateway_config.memorySearch
 

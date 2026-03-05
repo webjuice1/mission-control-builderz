@@ -181,7 +181,7 @@ export interface Agent {
   role: string;
   session_key?: string;
   soul_content?: string;
-  status: 'offline' | 'idle' | 'busy' | 'error';
+  status: 'offline' | 'standby' | 'idle' | 'busy' | 'error';
   last_seen?: number;
   last_activity?: string;
   created_at: number;

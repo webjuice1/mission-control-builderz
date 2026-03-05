@@ -156,6 +156,7 @@ export function AgentHistoryPanel() {
               a.status === 'busy' ? 'bg-green-500' :
               a.status === 'idle' ? 'bg-yellow-500' :
               a.status === 'error' ? 'bg-red-500' :
+              a.status === 'standby' ? 'bg-slate-400' :
               'bg-muted-foreground/30'
             }`} />
             {a.name}
@@ -188,6 +189,7 @@ export function AgentHistoryPanel() {
                       selectedAgentData.status === 'busy' ? 'text-green-400' :
                       selectedAgentData.status === 'idle' ? 'text-yellow-400' :
                       selectedAgentData.status === 'error' ? 'text-red-400' :
+                      selectedAgentData.status === 'standby' ? 'text-slate-400' :
                       'text-muted-foreground'
                     }`}>{selectedAgentData.status}</span>
                   </div>

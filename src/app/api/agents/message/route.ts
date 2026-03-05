@@ -26,24 +26,42 @@ export async function POST(request: NextRequest) {
     if (!agent) {
       return NextResponse.json({ error: 'Recipient agent not found' }, { status: 404 })
     }
-    if (!agent.session_key) {
-      return NextResponse.json(
-        { error: 'Recipient agent has no session key configured' },
-        { status: 400 }
-      )
-    }
-
-    await runOpenClaw(
-      [
-        'gateway',
-        'sessions_send',
-        '--session',
-        agent.session_key,
-        '--message',
-        `Message from ${from}: ${message}`
-      ],
-      { timeoutMs: 10000 }
+    // Store message in DB regardless of session key availability
+    const conversation_id = `a2a:${from}:${to}`
+    const stmt = db.prepare(`
+      INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      conversation_id,
+      from,
+      to,
+      message,
+      'text',
+      JSON.stringify({ source: 'agent-message-api' }),
+      workspaceId
     )
+
+    // Try live delivery if session key is available, but don't fail if it's not
+    let delivered = false
+    if (agent.session_key) {
+      try {
+        await runOpenClaw(
+          [
+            'gateway',
+            'sessions_send',
+            '--session',
+            agent.session_key,
+            '--message',
+            `Message from ${from}: ${message}`
+          ],
+          { timeoutMs: 10000 }
+        )
+        delivered = true
+      } catch (err) {
+        logger.warn({ err }, `Live delivery to ${to} failed, message stored in DB`)
+      }
+    }
 
     db_helpers.createNotification(
       to,
@@ -65,7 +83,7 @@ export async function POST(request: NextRequest) {
       workspaceId
     )
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, stored: true, delivered })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/agents/message error')
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })

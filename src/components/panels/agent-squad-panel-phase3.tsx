@@ -59,8 +59,48 @@ interface SoulTemplate {
   size: number
 }
 
+/** Extract display-friendly model name from agent config */
+function getAgentModel(agent: Agent): string {
+  const model = agent.config?.model
+  if (!model) return 'default'
+  if (typeof model === 'string') return formatModelName(model)
+  if (model.primary) return formatModelName(model.primary)
+  return 'default'
+}
+
+/** Shorten provider/model-name to just the model part */
+function formatModelName(raw: string): string {
+  const parts = raw.split('/')
+  return parts[parts.length - 1]
+}
+
+/** Detect model tier from model name */
+function getModelTier(agent: Agent): 'opus' | 'sonnet' | 'haiku' | 'other' {
+  const model = agent.config?.model
+  const raw = typeof model === 'string' ? model : model?.primary || ''
+  if (/opus/i.test(raw)) return 'opus'
+  if (/sonnet/i.test(raw)) return 'sonnet'
+  if (/haiku/i.test(raw)) return 'haiku'
+  return 'other'
+}
+
+const MODEL_TIER_COLORS: Record<string, string> = {
+  opus: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  sonnet: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  haiku: 'bg-green-500/20 text-green-400 border-green-500/30',
+  other: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+}
+
+const MODEL_TIER_LABELS: Record<string, string> = {
+  opus: 'Opus $$$',
+  sonnet: 'Sonnet $$',
+  haiku: 'Haiku $',
+  other: 'Custom',
+}
+
 const statusColors: Record<string, string> = {
   offline: 'bg-gray-500',
+  standby: 'bg-slate-400',
   idle: 'bg-green-500',
   busy: 'bg-yellow-500',
   error: 'bg-red-500',
@@ -68,6 +108,7 @@ const statusColors: Record<string, string> = {
 
 const statusIcons: Record<string, string> = {
   offline: '-',
+  standby: '·',
   idle: 'o',
   busy: '~',
   error: '!',
@@ -113,7 +154,16 @@ export function AgentSquadPanelPhase3() {
       if (!response.ok) throw new Error('Failed to fetch agents')
 
       const data = await response.json()
-      setAgents(data.agents || [])
+      const freshAgents = data.agents || []
+      setAgents(freshAgents)
+
+      // Keep selectedAgent in sync with freshly fetched data
+      // Without this, the detail modal shows stale config after saves
+      setSelectedAgent((prev) => {
+        if (!prev) return null
+        const updated = freshAgents.find((a: Agent) => a.id === prev.id)
+        return updated ?? prev
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
@@ -340,6 +390,21 @@ export function AgentSquadPanelPhase3() {
                     <div className={`w-3 h-3 rounded-full ${statusColors[agent.status]} animate-pulse`}></div>
                     <span className="text-xs text-muted-foreground">{agent.status}</span>
                   </div>
+                </div>
+
+                {/* Model Info */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${MODEL_TIER_COLORS[getModelTier(agent)]}`}>
+                    {MODEL_TIER_LABELS[getModelTier(agent)]}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-surface-1 text-muted-foreground border border-border font-mono">
+                    🧠 {getAgentModel(agent)}
+                  </span>
+                  {agent.config?.isDefault && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      ★ default
+                    </span>
+                  )}
                 </div>
 
                 {/* Session Info */}

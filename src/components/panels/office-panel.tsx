@@ -16,6 +16,7 @@ const statusGlow: Record<string, string> = {
   idle: 'shadow-green-500/40 border-green-500/60',
   busy: 'shadow-yellow-500/40 border-yellow-500/60',
   error: 'shadow-red-500/40 border-red-500/60',
+  standby: 'shadow-slate-400/20 border-slate-500/40',
   offline: 'shadow-gray-500/20 border-gray-600/40',
 }
 
@@ -23,6 +24,7 @@ const statusDot: Record<string, string> = {
   idle: 'bg-green-500',
   busy: 'bg-yellow-500',
   error: 'bg-red-500',
+  standby: 'bg-slate-400',
   offline: 'bg-gray-500',
 }
 
@@ -30,6 +32,7 @@ const statusLabel: Record<string, string> = {
   idle: 'Available',
   busy: 'Working',
   error: 'Error',
+  standby: 'Standby',
   offline: 'Away',
 }
 
@@ -37,6 +40,7 @@ const statusEmoji: Record<string, string> = {
   idle: '☕',
   busy: '💻',
   error: '⚠️',
+  standby: '🌙',
   offline: '💤',
 }
 
@@ -100,7 +104,7 @@ export function OfficePanel() {
   const displayAgents = agents.length > 0 ? agents : localAgents
 
   const counts = useMemo(() => {
-    const c = { idle: 0, busy: 0, error: 0, offline: 0 }
+    const c: Record<string, number> = { idle: 0, busy: 0, error: 0, standby: 0, offline: 0 }
     for (const a of displayAgents) c[a.status] = (c[a.status] || 0) + 1
     return c
   }, [displayAgents])
@@ -195,7 +199,7 @@ export function OfficePanel() {
                   </div>
 
                   <div className="flex items-center gap-3 mb-3">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0 ring-2 ring-offset-2 ring-offset-card ${agent.status === 'busy' ? 'ring-yellow-500 animate-pulse' : agent.status === 'idle' ? 'ring-green-500' : agent.status === 'error' ? 'ring-red-500' : 'ring-gray-600'}`} style={{ backgroundColor: getAgentIdentity(agent.name).color }}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shrink-0 ring-2 ring-offset-2 ring-offset-card ${agent.status === 'busy' ? 'ring-yellow-500 animate-pulse' : agent.status === 'idle' ? 'ring-green-500' : agent.status === 'error' ? 'ring-red-500' : agent.status === 'standby' ? 'ring-slate-400' : 'ring-gray-600'}`} style={{ backgroundColor: getAgentIdentity(agent.name).color }}>
                       {getAgentIdentity(agent.name).emoji}
                     </div>
                     <div className="min-w-0">
@@ -276,7 +280,7 @@ export function OfficePanel() {
           <div className="bg-card border border-border rounded-xl max-w-sm w-full p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ring-2 ring-offset-2 ring-offset-card" style={{ backgroundColor: getAgentIdentity(selectedAgent.name).color, ringColor: selectedAgent.status === 'busy' ? '#eab308' : selectedAgent.status === 'idle' ? '#22c55e' : selectedAgent.status === 'error' ? '#ef4444' : '#4b5563' }}>
+                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ring-2 ring-offset-2 ring-offset-card" style={{ backgroundColor: getAgentIdentity(selectedAgent.name).color, ['--tw-ring-color' as any]: selectedAgent.status === 'busy' ? '#eab308' : selectedAgent.status === 'idle' ? '#22c55e' : selectedAgent.status === 'error' ? '#ef4444' : selectedAgent.status === 'standby' ? '#94a3b8' : '#4b5563' }}>
                   {getAgentIdentity(selectedAgent.name).emoji}
                 </div>
                 <div>

@@ -6,6 +6,7 @@ import { readdirSync, statSync, unlinkSync } from 'fs'
 import { logger } from './logger'
 import { processWebhookRetries } from './webhooks'
 import { syncClaudeSessions } from './claude-sessions'
+import { getAgentLiveStatuses } from './sessions'
 
 const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
 
@@ -152,18 +153,48 @@ async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
     const timeoutMinutes = getSettingNumber('general.agent_timeout_minutes', 10)
     const threshold = now - timeoutMinutes * 60
 
-    // Find agents that are not offline but haven't been seen recently
+    // Sync agent statuses from live session files BEFORE checking liveness.
+    // This prevents marking agents offline when they have active OpenClaw sessions
+    // (same logic as /api/status uses).
+    try {
+      const liveStatuses = getAgentLiveStatuses()
+      const updateStmt = db.prepare(
+        `UPDATE agents SET status = ?, last_seen = ?, updated_at = ?
+         WHERE (LOWER(name) = LOWER(?) OR LOWER(REPLACE(name, ' ', '-')) = LOWER(?))`
+      )
+      for (const [agentName, info] of liveStatuses) {
+        if (info.status !== 'offline') {
+          updateStmt.run(info.status, Math.floor(info.lastActivity / 1000), now, agentName, agentName)
+        }
+      }
+    } catch (syncErr) {
+      logger.warn({ err: syncErr }, 'Failed to sync live session statuses before heartbeat check')
+    }
+
+    // Find agents that are active but haven't been seen recently
+    // Agents already in 'standby' or 'offline' are excluded
     const staleAgents = db.prepare(`
       SELECT id, name, status, last_seen FROM agents
-      WHERE status != 'offline' AND (last_seen IS NULL OR last_seen < ?)
+      WHERE status NOT IN ('offline', 'standby') AND (last_seen IS NULL OR last_seen < ?)
     `).all(threshold) as Array<{ id: number; name: string; status: string; last_seen: number | null }>
 
     if (staleAgents.length === 0) {
       return { ok: true, message: 'All agents healthy' }
     }
 
-    // Mark stale agents as offline
-    const markOffline = db.prepare('UPDATE agents SET status = ?, updated_at = ? WHERE id = ?')
+    // Mark stale agents as standby (not offline — standby means available but not running)
+    const markStandby = db.prepare('UPDATE agents SET status = ?, updated_at = ? WHERE id = ?')
+
+    // Debounce: check if agent was already marked standby/offline recently (within 1 hour)
+    // to prevent spamming the activity feed with repeated status changes
+    const DEBOUNCE_SECONDS = 3600 // 1 hour
+    const recentActivityCheck = db.prepare(`
+      SELECT id FROM activities
+      WHERE entity_type = 'agent' AND entity_id = ? AND type = 'agent_status_change'
+        AND actor = 'heartbeat' AND created_at > ?
+      LIMIT 1
+    `)
+
     const logActivity = db.prepare(`
       INSERT INTO activities (type, entity_type, entity_id, actor, description)
       VALUES ('agent_status_change', 'agent', ?, 'heartbeat', ?)
@@ -172,31 +203,36 @@ async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
     const names: string[] = []
     db.transaction(() => {
       for (const agent of staleAgents) {
-        markOffline.run('offline', now, agent.id)
-        logActivity.run(agent.id, `Agent "${agent.name}" marked offline (no heartbeat for ${timeoutMinutes}m)`)
+        markStandby.run('standby', now, agent.id)
         names.push(agent.name)
 
-        // Create notification for each stale agent
-        try {
-          db.prepare(`
-            INSERT INTO notifications (recipient, type, title, message, source_type, source_id)
-            VALUES ('system', 'heartbeat', ?, ?, 'agent', ?)
-          `).run(
-            `Agent offline: ${agent.name}`,
-            `Agent "${agent.name}" was marked offline after ${timeoutMinutes} minutes without heartbeat`,
-            agent.id
-          )
-        } catch { /* notification creation failed */ }
+        // Only log activity + notification if not recently logged (debounce)
+        const recentLog = recentActivityCheck.get(agent.id, now - DEBOUNCE_SECONDS)
+        if (!recentLog) {
+          logActivity.run(agent.id, `Agent "${agent.name}" marked standby (no heartbeat for ${timeoutMinutes}m)`)
+
+          // Create notification for each stale agent
+          try {
+            db.prepare(`
+              INSERT INTO notifications (recipient, type, title, message, source_type, source_id)
+              VALUES ('system', 'heartbeat', ?, ?, 'agent', ?)
+            `).run(
+              `Agent standby: ${agent.name}`,
+              `Agent "${agent.name}" moved to standby after ${timeoutMinutes} minutes without heartbeat`,
+              agent.id
+            )
+          } catch { /* notification creation failed */ }
+        }
       }
     })()
 
     logAuditEvent({
       action: 'heartbeat_check',
       actor: 'scheduler',
-      detail: { marked_offline: names },
+      detail: { marked_standby: names },
     })
 
-    return { ok: true, message: `Marked ${staleAgents.length} agent(s) offline: ${names.join(', ')}` }
+    return { ok: true, message: `Marked ${staleAgents.length} agent(s) standby: ${names.join(', ')}` }
   } catch (err: any) {
     return { ok: false, message: `Heartbeat check failed: ${err.message}` }
   }

@@ -47,7 +47,7 @@ export const createAgentSchema = z.object({
   role: z.string().min(1, 'Role is required').max(100).optional(),
   session_key: z.string().max(200).optional(),
   soul_content: z.string().max(50000).optional(),
-  status: z.enum(['online', 'offline', 'busy', 'idle', 'error']).default('offline'),
+  status: z.enum(['online', 'offline', 'standby', 'busy', 'idle', 'error']).default('offline'),
   config: z.record(z.string(), z.unknown()).default({} as Record<string, unknown>),
   template: z.string().max(100).optional(),
   gateway_config: z.record(z.string(), z.unknown()).optional(),

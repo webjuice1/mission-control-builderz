@@ -17,7 +17,16 @@ interface Agent {
   last_activity?: string
   created_at: number
   updated_at: number
-  config?: any
+  config?: {
+    openclawId?: string
+    model?: string | { primary?: string; fallbacks?: string[] }
+    identity?: { name?: string; theme?: string; emoji?: string }
+    tools?: { allow?: string[]; raw?: string }
+    workspace?: string
+    agentDir?: string
+    isDefault?: boolean
+    [key: string]: any
+  }
   taskStats?: {
     total: number
     assigned: number
@@ -26,8 +35,40 @@ interface Agent {
   }
 }
 
+/** Extract display-friendly model name from agent config */
+function getAgentModel(agent: Agent): string {
+  const model = agent.config?.model
+  if (!model) return 'default'
+  if (typeof model === 'string') return formatModelName(model)
+  if (model.primary) return formatModelName(model.primary)
+  return 'default'
+}
+
+/** Shorten provider/model-name to just the model part */
+function formatModelName(raw: string): string {
+  // "anthropic/claude-opus-4-6" → "claude-opus-4-6"
+  // "openrouter/x-ai/grok-3" → "grok-3"
+  const parts = raw.split('/')
+  return parts[parts.length - 1]
+}
+
+/** Get model fallbacks if any */
+function getModelFallbacks(agent: Agent): string[] {
+  const model = agent.config?.model
+  if (!model || typeof model === 'string') return []
+  return (model.fallbacks || []).map(formatModelName)
+}
+
+/** Count configured tools */
+function getToolsCount(agent: Agent): number | null {
+  const tools = agent.config?.tools
+  if (!tools?.allow) return null
+  return tools.allow.length
+}
+
 const statusColors: Record<string, string> = {
   offline: 'bg-gray-500',
+  standby: 'bg-slate-400',
   idle: 'bg-green-500',
   busy: 'bg-yellow-500',
   error: 'bg-red-500',
@@ -35,6 +76,7 @@ const statusColors: Record<string, string> = {
 
 const statusIcons: Record<string, string> = {
   offline: '⚫',
+  standby: '🔘',
   idle: '🟢',
   busy: '🟡',
   error: '🔴',
@@ -221,7 +263,10 @@ export function AgentSquadPanel() {
                 {/* Agent Header */}
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h3 className="font-semibold text-white text-lg">{getAgentDisplayName(agent.name)}</h3>
+                    <h3 className="font-semibold text-white text-lg">
+                      {agent.config?.identity?.emoji && <span className="mr-1">{agent.config.identity.emoji}</span>}
+                      {getAgentDisplayName(agent.name)}
+                    </h3>
                     <p className="text-gray-400 text-sm">{agent.name} · {agent.role}</p>
                   </div>
                   
@@ -229,6 +274,28 @@ export function AgentSquadPanel() {
                     <div className={`w-3 h-3 rounded-full ${statusColors[agent.status]} animate-pulse`}></div>
                     <span className="text-xs text-gray-400">{agent.status}</span>
                   </div>
+                </div>
+
+                {/* Model & Config Info */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-purple-900/40 text-purple-300 border border-purple-700/50">
+                    🧠 {getAgentModel(agent)}
+                  </span>
+                  {getModelFallbacks(agent).length > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-700/50 text-gray-400 border border-gray-600/50" title={`Fallbacks: ${getModelFallbacks(agent).join(', ')}`}>
+                      +{getModelFallbacks(agent).length} fallback{getModelFallbacks(agent).length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {getToolsCount(agent) !== null && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-900/40 text-blue-300 border border-blue-700/50">
+                      🔧 {getToolsCount(agent)} tools
+                    </span>
+                  )}
+                  {agent.config?.isDefault && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-900/40 text-amber-300 border border-amber-700/50">
+                      ★ default
+                    </span>
+                  )}
                 </div>
 
                 {/* Session Info */}
@@ -396,6 +463,47 @@ function AgentDetailModal({
                   {statusIcons[status]} {status}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Model & Config Summary */}
+          <div className="mb-6 p-4 bg-gray-700/50 rounded-lg">
+            <h4 className="text-sm font-medium text-white mb-2">Configuration</h4>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-gray-400">Model:</span>
+                <span className="text-purple-300 ml-2 font-mono">{getAgentModel(agent)}</span>
+              </div>
+              {getModelFallbacks(agent).length > 0 && (
+                <div>
+                  <span className="text-gray-400">Fallbacks:</span>
+                  <span className="text-gray-300 ml-2 font-mono">{getModelFallbacks(agent).join(', ')}</span>
+                </div>
+              )}
+              {getToolsCount(agent) !== null && (
+                <div>
+                  <span className="text-gray-400">Tools:</span>
+                  <span className="text-blue-300 ml-2">{getToolsCount(agent)} configured</span>
+                </div>
+              )}
+              {agent.config?.workspace && (
+                <div className="col-span-2">
+                  <span className="text-gray-400">Workspace:</span>
+                  <span className="text-gray-300 ml-2 font-mono text-xs">{agent.config.workspace}</span>
+                </div>
+              )}
+              {agent.config?.openclawId && (
+                <div>
+                  <span className="text-gray-400">OpenClaw ID:</span>
+                  <span className="text-gray-300 ml-2 font-mono">{agent.config.openclawId}</span>
+                </div>
+              )}
+              {agent.config?.isDefault && (
+                <div>
+                  <span className="text-gray-400">Default Agent:</span>
+                  <span className="text-amber-300 ml-2">★ Yes</span>
+                </div>
+              )}
             </div>
           </div>
 
