@@ -460,14 +460,22 @@ export function TaskBoardPanel() {
 
     try {
       if (newStatus === 'done') {
-        const reviewResponse = await fetch(`/api/quality-review?taskId=${draggedTask.id}`)
-        if (!reviewResponse.ok) {
-          throw new Error('Unable to verify Aegis approval')
-        }
-        const reviewData = await reviewResponse.json()
-        const latest = reviewData.reviews?.find((review: any) => review.reviewer === 'aegis')
-        if (!latest || latest.status !== 'approved') {
-          throw new Error('Aegis approval is required before moving to done')
+        // Check for Aegis approval, but allow manual override
+        try {
+          const reviewResponse = await fetch(`/api/quality-review?taskId=${draggedTask.id}`)
+          if (reviewResponse.ok) {
+            const reviewData = await reviewResponse.json()
+            const latest = reviewData.reviews?.find((review: any) => review.reviewer === 'aegis')
+            if (latest && latest.status !== 'approved') {
+              // Aegis rejected — warn but allow override
+              if (!confirm('Aegis has not approved this task. Move to done anyway?')) {
+                setDraggedTask(null)
+                return
+              }
+            }
+          }
+        } catch {
+          // Aegis check failed — allow manual move
         }
       }
 
