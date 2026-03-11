@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
+import { runCommand } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 export async function POST(
   request: NextRequest,
@@ -39,24 +41,62 @@ export async function POST(
       customMessage ||
       `Wake up check-in for ${agent.name}. Please review assigned tasks and notifications.`
 
-    const { stdout, stderr } = await runOpenClaw(
-      ['gateway', 'sessions_send', '--session', agent.session_key, '--message', message],
-      { timeoutMs: 10000 }
-    )
+    // Read gateway token from openclaw config
+    let gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || ''
+    try {
+      const home = process.env.HOME || '/Users/clowdbot'
+      const raw = readFileSync(join(home, '.openclaw', 'openclaw.json'), 'utf-8')
+      gatewayToken = JSON.parse(raw)?.gateway?.auth?.token || gatewayToken
+    } catch {}
 
-    if (stderr && stderr.includes('error')) {
-      return NextResponse.json(
-        { error: stderr.trim() || 'Failed to wake agent' },
-        { status: 500 }
+    // Build sanitized env: strip OPENCLAW_HOME (breaks agent lookup)
+    const childEnv = { ...process.env }
+    delete childEnv.OPENCLAW_HOME
+    childEnv.OPENCLAW_GATEWAY_TOKEN = gatewayToken
+    childEnv.HOME = process.env.HOME || '/Users/clowdbot'
+
+    const args = [
+      'agent',
+      '--agent', agent.session_key,
+      '--message', message,
+      '--json'
+    ]
+
+    let stdout = ''
+    let stderr = ''
+    try {
+      const result = await runCommand(
+        process.env.OPENCLAW_BIN || '/opt/homebrew/bin/openclaw',
+        args,
+        { timeoutMs: 30000, cwd: '/tmp', env: childEnv }
       )
+      stdout = result.stdout
+      stderr = result.stderr
+    } catch (err: any) {
+      // openclaw agent --json may exit with null code even on success.
+      // If stdout contains valid JSON with status:"ok", treat it as success.
+      stdout = err.stdout || ''
+      stderr = err.stderr || ''
+      try {
+        const parsed = JSON.parse(stdout)
+        if (parsed?.status !== 'ok') throw err
+      } catch (parseErr) {
+        if (parseErr === err) throw err
+        throw err
+      }
     }
+
+    // Parse response
+    let response: any = {}
+    try { response = JSON.parse(stdout) } catch {}
 
     db_helpers.updateAgentStatus(agent.name, 'idle', 'Manual wake', workspaceId)
 
     return NextResponse.json({
       success: true,
+      agent: agent.name,
       session_key: agent.session_key,
-      stdout: stdout.trim()
+      response: response?.result?.payloads?.[0]?.text || stdout.substring(0, 500)
     })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/agents/[id]/wake error')

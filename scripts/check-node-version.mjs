@@ -5,7 +5,7 @@ const REQUIRED_NODE_MAJOR = 22
 const current = process.versions.node
 const currentMajor = Number.parseInt(current.split('.')[0] || '', 10)
 
-if (currentMajor !== REQUIRED_NODE_MAJOR) {
+if (currentMajor < REQUIRED_NODE_MAJOR) {
   console.error(
     [
       `error: Mission Control requires Node ${REQUIRED_NODE_MAJOR}.x, but found ${current}.`,
