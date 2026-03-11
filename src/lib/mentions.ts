@@ -6,6 +6,8 @@ export interface MentionTarget {
   type: 'user' | 'agent'
   display: string
   role?: string
+  /** If true, this entry is an alias (e.g. openclawId) — use for resolution but hide from autocomplete */
+  alias?: boolean
 }
 
 export interface MentionResolution {
@@ -86,20 +88,34 @@ export function getMentionTargets(db: Database, workspaceId: number): MentionTar
       // ignore invalid config JSON for mention indexing
     }
 
-    const candidateHandles = [openclawId, normalizeAgentHandle(recipient), recipient.toLowerCase()]
-      .filter((value): value is string => Boolean(value))
-
-    for (const rawHandle of candidateHandles) {
-      const handle = rawHandle.toLowerCase()
-      if (!handle || seenHandles.has(handle)) continue
-      seenHandles.add(handle)
+    // Primary handle: the display name (e.g. "nova" for agent "Nova")
+    const primaryHandle = normalizeAgentHandle(recipient)
+    if (primaryHandle && !seenHandles.has(primaryHandle)) {
+      seenHandles.add(primaryHandle)
       targets.push({
-        handle,
+        handle: primaryHandle,
         recipient,
         type: 'agent',
         display: recipient,
         role: agent.role || undefined,
       })
+    }
+
+    // OpenClaw ID alias (e.g. "webdev" → Nova) — resolves in comments but
+    // hidden from autocomplete dropdown to avoid duplicate entries
+    if (openclawId) {
+      const aliasHandle = openclawId.toLowerCase()
+      if (aliasHandle !== primaryHandle && !seenHandles.has(aliasHandle)) {
+        seenHandles.add(aliasHandle)
+        targets.push({
+          handle: aliasHandle,
+          recipient,
+          type: 'agent',
+          display: recipient,
+          role: agent.role || undefined,
+          alias: true,
+        })
+      }
     }
   }
 

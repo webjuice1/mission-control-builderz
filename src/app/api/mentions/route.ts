@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.max(1, Math.min(Number.isFinite(limitRaw) ? limitRaw : 25, 200))
 
     let targets = getMentionTargets(db, workspaceId)
+      .filter((target) => !target.alias) // hide aliases from autocomplete
 
     if (typeFilter === 'user' || typeFilter === 'agent') {
       targets = targets.filter((target) => target.type === typeFilter)
