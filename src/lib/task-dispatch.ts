@@ -1,7 +1,47 @@
 import { getDatabase, db_helpers } from './db'
-import { runOpenClaw } from './command'
+import { runCommand } from './command'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+/** Build a sanitized env for openclaw agent calls (same fix as wake route) */
+function buildAgentEnv(): NodeJS.ProcessEnv {
+  const childEnv = { ...process.env }
+  delete childEnv.OPENCLAW_HOME  // TOXIC: breaks agent ID resolution
+
+  // Read gateway token from openclaw.json
+  try {
+    const home = process.env.HOME || '/Users/clowdbot'
+    const configPath = process.env.OPENCLAW_CONFIG_PATH || join(home, '.openclaw', 'openclaw.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'))
+    const token = config?.gateway?.auth?.token
+    if (token) childEnv.OPENCLAW_GATEWAY_TOKEN = token
+  } catch {}
+
+  childEnv.HOME = process.env.HOME || '/Users/clowdbot'
+  return childEnv
+}
+
+/** Run openclaw agent --agent <sessionKey> --message <msg> --json, tolerating null exit codes */
+async function runAgentCommand(sessionKey: string, message: string, timeoutMs = 120_000): Promise<{ stdout: string; stderr: string }> {
+  const bin = process.env.OPENCLAW_BIN || '/opt/homebrew/bin/openclaw'
+  const args = ['agent', '--agent', sessionKey, '--message', message, '--json']
+  const env = buildAgentEnv()
+
+  try {
+    const result = await runCommand(bin, args, { timeoutMs, cwd: '/tmp', env })
+    return result
+  } catch (err: any) {
+    // openclaw agent --json exits with null code even on success
+    const stdout = err.stdout || ''
+    try {
+      const parsed = JSON.parse(stdout)
+      if (parsed?.status === 'ok') return { stdout, stderr: err.stderr || '' }
+    } catch {}
+    throw err
+  }
+}
 
 interface DispatchableTask {
   id: number
@@ -69,16 +109,23 @@ interface AgentResponseParsed {
 function parseAgentResponse(stdout: string): AgentResponseParsed {
   try {
     const parsed = JSON.parse(stdout)
-    const sessionId: string | null = typeof parsed?.sessionId === 'string' ? parsed.sessionId
-      : typeof parsed?.session_id === 'string' ? parsed.session_id
-      : null
+    const sessionId: string | null =
+      parsed?.result?.meta?.agentMeta?.sessionId
+      || (typeof parsed?.sessionId === 'string' ? parsed.sessionId : null)
+      || (typeof parsed?.session_id === 'string' ? parsed.session_id : null)
 
-    // OpenClaw agent --json returns { payloads: [{ text: "..." }] }
+    // openclaw agent --json returns { result: { payloads: [{ text: "..." }] } }
+    if (parsed?.result?.payloads?.[0]?.text) {
+      return { text: parsed.result.payloads[0].text, sessionId }
+    }
+    // Flat payloads (legacy)
     if (parsed?.payloads?.[0]?.text) {
       return { text: parsed.payloads[0].text, sessionId }
     }
-    // Fallback: if there's a result or output field
-    if (parsed?.result) return { text: String(parsed.result), sessionId }
+    // Fallback: if there's a result with text content
+    if (parsed?.result && typeof parsed.result === 'string') {
+      return { text: parsed.result, sessionId }
+    }
     if (parsed?.output) return { text: String(parsed.output), sessionId }
     // Last resort: stringify the whole response
     return { text: JSON.stringify(parsed, null, 2), sessionId }
@@ -181,32 +228,15 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
     try {
       const prompt = buildReviewPrompt(task)
-      // Use the assigned agent or fall back to a default reviewer agent
-      const reviewAgent = task.assigned_to || 'jarv'
+      // Use the assigned agent's session_key or fall back to main
+      const reviewAgentName = task.assigned_to || 'Jimmy'
+      const reviewRow = db.prepare('SELECT session_key FROM agents WHERE name = ?')
+        .get(reviewAgentName) as { session_key: string } | undefined
+      const reviewSessionKey = reviewRow?.session_key || 'main'
 
-      const invokeParams = {
-        message: prompt,
-        agentId: reviewAgent,
-        idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
-        deliver: false,
-      }
-      const invokeResult = await runOpenClaw(
-        ['gateway', 'call', 'agent', '--timeout', '10000', '--params', JSON.stringify(invokeParams), '--json'],
-        { timeoutMs: 12_000 }
-      )
-      const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
-      const runId = acceptedPayload?.runId
-      if (!runId) throw new Error('Gateway did not return a runId for Aegis review')
-
-      const waitResult = await runOpenClaw(
-        ['gateway', 'call', 'agent.wait', '--timeout', '120000', '--params', JSON.stringify({ runId, timeoutMs: 115_000 }), '--json'],
-        { timeoutMs: 125_000 }
-      )
-      const waitPayload = parseGatewayJson(waitResult.stdout)
-      const agentResponse = parseAgentResponse(
-        waitPayload?.result ? JSON.stringify(waitPayload.result) : waitResult.stdout
-      )
+      // Dispatch review via openclaw agent CLI
+      const reviewResult = await runAgentCommand(reviewSessionKey, prompt, 120_000)
+      const agentResponse = parseAgentResponse(reviewResult.stdout)
       if (!agentResponse.text) {
         throw new Error('Aegis review returned empty response')
       }
@@ -349,36 +379,14 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
       const prompt = buildTaskPrompt(task, rejectionFeedback)
 
-      // Step 1: Invoke via gateway
-      const invokeParams = {
-        message: prompt,
-        agentId: task.agent_name,
-        idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-        deliver: false,
-      }
-      const invokeResult = await runOpenClaw(
-        ['gateway', 'call', 'agent', '--timeout', '10000', '--params', JSON.stringify(invokeParams), '--json'],
-        { timeoutMs: 12_000 }
-      )
-      const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-        ?? parseGatewayJson(String((invokeResult as any)?.stderr || ''))
-      const runId = acceptedPayload?.runId
-      if (!runId) throw new Error('Gateway did not return a runId for task dispatch')
+      // Look up the agent's session_key
+      const agentRow = db.prepare('SELECT session_key FROM agents WHERE name = ? AND workspace_id = ?')
+        .get(task.agent_name, task.workspace_id) as { session_key: string } | undefined
+      const sessionKey = agentRow?.session_key || task.agent_name.toLowerCase()
 
-      // Step 2: Wait for completion
-      const waitResult = await runOpenClaw(
-        ['gateway', 'call', 'agent.wait', '--timeout', '120000', '--params', JSON.stringify({ runId, timeoutMs: 115_000 }), '--json'],
-        { timeoutMs: 125_000 }
-      )
-      const waitPayload = parseGatewayJson(waitResult.stdout)
-
-      const agentResponse = parseAgentResponse(
-        waitPayload?.result ? JSON.stringify(waitPayload.result) : waitResult.stdout
-      )
-      // Capture sessionId from the wait payload if not in the parsed response
-      if (!agentResponse.sessionId && waitPayload?.sessionId) {
-        agentResponse.sessionId = waitPayload.sessionId
-      }
+      // Dispatch via openclaw agent CLI (direct, no broken gateway call)
+      const result = await runAgentCommand(sessionKey, prompt, 120_000)
+      const agentResponse = parseAgentResponse(result.stdout)
 
       if (!agentResponse.text) {
         throw new Error('Agent returned empty response')
